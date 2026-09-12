@@ -288,7 +288,7 @@ func runBuildWatch(dir, tsConfigPath string, opts projectOptions, wopts watchOpt
 	}
 
 	w := newTreeWatcher(dir)
-	w.setSkipDirs(guessedOutputDir(dir, nil), watchIncludeDir(dir, opts))
+	w.setSkipDirs(guessedOutputDir(dir, nil), watchIncludeDir(dir, opts, nil))
 
 	// The baseline snapshot is taken BEFORE the build, so a file saved while
 	// the build runs still differs from the baseline on the next tick instead
@@ -301,7 +301,7 @@ func runBuildWatch(dir, tsConfigPath string, opts projectOptions, wopts watchOpt
 	// The build reveals the real output dir (it may not be out/); prune the
 	// baseline to match the refreshed skip set, or the now-unwalked entries
 	// would read as deletions and trigger a spurious rebuild.
-	w.setSkipDirs(guessedOutputDir(dir, result), watchIncludeDir(dir, opts))
+	w.setSkipDirs(guessedOutputDir(dir, result), watchIncludeDir(dir, opts, result))
 	pruneStamps(baseline, w.skipDirs)
 
 	for {
@@ -321,7 +321,7 @@ func runBuildWatch(dir, tsConfigPath string, opts projectOptions, wopts watchOpt
 		result, diags, elapsed, err = runBuildOnce(dir, tsConfigPath, opts)
 		stats.record(elapsed)
 		reportBuildPass(u, result, diags, elapsed, err, stats)
-		w.setSkipDirs(guessedOutputDir(dir, result), watchIncludeDir(dir, opts))
+		w.setSkipDirs(guessedOutputDir(dir, result), watchIncludeDir(dir, opts, result))
 		pruneStamps(baseline, w.skipDirs)
 	}
 }
@@ -343,8 +343,11 @@ func pruneStamps(stamps map[string]fileStamp, skipDirs []string) {
 // watchIncludeDir mirrors compile.resolveIncludePath for tree pruning: the
 // include dir is rewritten by every build, so leaving it in the walk would
 // make the pre-build baseline self-trigger an endless rebuild loop.
-func watchIncludeDir(dir string, opts projectOptions) string {
+func watchIncludeDir(dir string, opts projectOptions, result *compile.BuildResult) string {
 	if opts.includePath == "" {
+		if result != nil && result.OutputDir != "" {
+			return filepath.Join(result.OutputDir, "include")
+		}
 		return filepath.Join(dir, "include")
 	}
 	abs, err := filepath.Abs(filepath.FromSlash(opts.includePath))

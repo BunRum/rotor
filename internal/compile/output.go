@@ -67,7 +67,7 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 	pathTranslator := createPathTranslator(program, !opts.LuaExtension)
 	cleanupOutputs(pathTranslator)
 
-	if err := maybeCopyInclude(dir, opts); err != nil {
+	if err := maybeCopyInclude(dir, pathTranslator.OutDir, opts); err != nil {
 		return nil, nil, err
 	}
 	if err := copyNonCompiledFiles(pathTranslator, getRootDirs(program), opts.WriteOnlyChanged); err != nil {
@@ -145,8 +145,8 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 
 	for _, relOut := range relOuts {
 		// Defense-in-depth: output paths are derived from source/Rojo path
-		// mappings; refuse any that would escape the project directory.
-		if err := assertLocalOutputPath(relOut); err != nil {
+		// mappings; permit an external outDir but reject unrelated paths.
+		if err := assertOutputPath(dir, pathTranslator.OutDir, relOut); err != nil {
 			return nil, nil, err
 		}
 		absOut := filepath.Join(filepath.FromSlash(dir), filepath.FromSlash(relOut))
@@ -277,11 +277,14 @@ func minifyOutputs(outputs map[string]string) error {
 	return nil
 }
 
-// assertLocalOutputPath rejects project-relative output paths that are
-// absolute or traverse outside the project dir (e.g. "../x", "C:\x").
-func assertLocalOutputPath(relOut string) error {
-	if !filepath.IsLocal(filepath.FromSlash(relOut)) {
-		return fmt.Errorf("compile: refusing to write output outside the project directory: %q", relOut)
+// assertOutputPath rejects outputs that are not inside the configured outDir.
+// An outDir outside the project is valid for multi-place/shared-source
+// projects, but arbitrary paths unrelated to that configured directory are
+// still rejected.
+func assertOutputPath(projectDir, outDir, relOut string) error {
+	outPath := filepath.Clean(filepath.Join(filepath.FromSlash(projectDir), filepath.FromSlash(relOut)))
+	if !isPathDescendantOf(outPath, filepath.Clean(filepath.FromSlash(outDir))) {
+		return fmt.Errorf("compile: refusing to write output outside outDir: %q", relOut)
 	}
 	return nil
 }
@@ -301,7 +304,7 @@ func writeOutputFile(path string, text string, writeOnlyChanged bool) (bool, err
 	return true, nil
 }
 
-func maybeCopyInclude(dir string, opts ProjectOptions) error {
+func maybeCopyInclude(dir, outDir string, opts ProjectOptions) error {
 	if !opts.EmitIncludeFiles || opts.Type == "package" {
 		return nil
 	}
@@ -313,7 +316,7 @@ func maybeCopyInclude(dir string, opts ProjectOptions) error {
 		return nil
 	}
 
-	includePath, err := resolveIncludePath(dir, opts.IncludePath)
+	includePath, err := resolveBuildIncludePath(dir, outDir, opts.IncludePath)
 	if err != nil {
 		return err
 	}

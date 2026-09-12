@@ -154,6 +154,22 @@ func resolveIncludePath(dir, includePath string) (string, error) {
 	return filepath.Abs(filepath.FromSlash(includePath))
 }
 
+// resolveBuildIncludePath keeps the upstream project/include default for
+// normal builds, but places the generated runtime library beside an external
+// outDir. This lets a project whose Rojo tree maps ../../build/... contain all
+// generated files without requiring --includePath on every build.
+func resolveBuildIncludePath(dir, outDir, includePath string) (string, error) {
+	if includePath != "" {
+		return resolveIncludePath(dir, includePath)
+	}
+	outDir = filepath.Clean(filepath.FromSlash(outDir))
+	projectDir := filepath.Clean(filepath.FromSlash(dir))
+	if !isPathDescendantOf(outDir, projectDir) {
+		return filepath.Join(outDir, "include"), nil
+	}
+	return filepath.Join(projectDir, "include"), nil
+}
+
 // newProjectContext ports the project-level setup of compileFiles.ts L56-100
 // (with createProjectData.ts feeding it): RojoResolver construction,
 // checkRojoConfig/checkFileName, ProjectType selection, and runtimeLibRbxPath
@@ -177,7 +193,7 @@ func newProjectContext(dir string, program *compiler.Program, opts ProjectOption
 		return nil, nil, err
 	}
 
-	includePath, err := resolveIncludePath(dir, opts.IncludePath)
+	includePath, err := resolveBuildIncludePath(dir, outDir, opts.IncludePath)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -413,10 +429,11 @@ func resolveAgainst(base, p string) string {
 // without any include emission, preserving the original CompileProject
 // behavior (pure: nothing but the returned map is produced).
 type ProjectOptions struct {
-	// IncludePath is the raw --includePath value; "" applies upstream's
-	// default of <projectDir>/include (createProjectData.ts L29). It feeds
-	// both the RuntimeLib.lua Rojo-path validation (compileFiles.ts L88-89)
-	// and, when EmitIncludeFiles is set, the copy destination.
+	// IncludePath is the raw --includePath value; "" applies the normal
+	// <projectDir>/include default, or <outDir>/include when outDir is
+	// external. It feeds both RuntimeLib.lua Rojo-path validation
+	// (compileFiles.ts L88-89) and, when EmitIncludeFiles is set, the copy
+	// destination.
 	IncludePath string
 
 	// EmitIncludeFiles asks the compile to perform copyInclude.ts: write the
@@ -505,7 +522,7 @@ func CompileProjectWithOptions(projectDir string, opts ProjectOptions) (map[stri
 	if err != nil {
 		return nil, diags, err
 	}
-	if err := maybeCopyInclude(dir, opts); err != nil {
+	if err := maybeCopyInclude(dir, createPathTranslator(program, !opts.LuaExtension).OutDir, opts); err != nil {
 		return nil, nil, err
 	}
 	outputs, infos, err := compileProjectProgram(dir, program, opts)

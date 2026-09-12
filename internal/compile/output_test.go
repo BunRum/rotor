@@ -86,6 +86,37 @@ func TestBuildProjectOutputPipeline(t *testing.T) {
 	}
 }
 
+func TestBuildProjectExternalOutputIncludesRuntimeLibrary(t *testing.T) {
+	dir := writeProject(t, "external-output-fixture",
+		`{"name":"x","tree":{"$path":"../build","include":{"$path":"../build/include"}}}`)
+	tsconfigPath := filepath.Join(dir, "tsconfig.json")
+	tsconfigBytes, err := os.ReadFile(tsconfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tsconfig := strings.Replace(string(tsconfigBytes), `"outDir": "out"`, `"outDir": "../build"`, 1)
+	if err := os.WriteFile(tsconfigPath, []byte(tsconfig), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, diags, err := BuildProjectWithOptions(dir, ProjectOptions{EmitIncludeFiles: true})
+	if err != nil {
+		t.Fatalf("BuildProjectWithOptions: %v (diags: %v)", err, diags)
+	}
+	if len(diags) > 0 {
+		t.Fatalf("diagnostics: %v", diags)
+	}
+	if result == nil || result.OutputDir != filepath.Join(dir, "..", "build") {
+		t.Fatalf("result = %#v, want external build output", result)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "..", "build", "main.luau")); err != nil {
+		t.Fatalf("external compiled output missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "..", "build", "include", "RuntimeLib.lua")); err != nil {
+		t.Fatalf("external include runtime missing: %v", err)
+	}
+}
+
 func TestBuildProjectWriteOnlyChangedSkipsUnchangedOutputs(t *testing.T) {
 	dir := writeProject(t, "@scope/write-only-fixture", "")
 	if err := os.WriteFile(filepath.Join(dir, "src", "data.json"), []byte("{\"same\":true}\n"), 0o644); err != nil {

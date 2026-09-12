@@ -70,7 +70,12 @@ func cmdClean(args []string) int {
 	// the same helper the build watcher uses to prune the include tree.
 	outDir := resolveOutDir(dir, tsConfigPath)
 	opts := mergeProjectOptions(defaultProjectOptions, readRbxtsOptions(tsConfigPath), nil)
-	includeDir := watchIncludeDir(dir, opts)
+	includeDir := watchIncludeDir(dir, opts, nil)
+	if opts.includePath == "" {
+		if rel, err := filepath.Rel(dir, outDir); err == nil && (rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator))) {
+			includeDir = filepath.Join(outDir, "include")
+		}
+	}
 
 	targets := []string{outDir}
 	if includeDir != "" {
