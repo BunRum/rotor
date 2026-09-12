@@ -456,6 +456,18 @@ func newProjectProgramFromFS(dir, configPath string, fs vfs.FS) (*compiler.Progr
 		return nil, diagnosticStrings(configDiags), errors.New("compile: tsconfig.json has errors")
 	}
 
+	// TypeScript reports diagnostic 5011 when rootDirs make the common source
+	// directory broader than the config directory and rootDir is omitted.
+	// rbxtsc accepts this layout by using that physical common source
+	// directory for output mapping, so inject the equivalent option before
+	// constructing the Program. rootDirs remain module-resolution roots; they
+	// are not used as output roots.
+	if options := parsed.CompilerOptions(); options.RootDir == "" && options.OutDir != "" {
+		if inferred := inferRootDir(configPath, options.OutDir, parsed.ParsedConfig.FileNames); inferred != "" {
+			options.RootDir = inferred
+		}
+	}
+
 	raw := readRawEnforcedOptions(filepath.FromSlash(configPath))
 	if msg := validateCompilerOptions(parsed.CompilerOptions(), dir, raw); msg != "" {
 		return nil, []string{msg}, errors.New("compile: invalid tsconfig.json configuration")
@@ -485,6 +497,79 @@ func newProjectProgramFromFS(dir, configPath string, fs vfs.FS) (*compiler.Progr
 		Host:   host,
 		Config: parsed,
 	}), nil, nil
+}
+
+// inferRootDir mirrors the root used by rbxtsc for a configured outDir when
+// rootDir is omitted. Declaration files, node_modules, and files already
+// under outDir cannot determine the emitted source layout.
+func inferRootDir(configPath, outDir string, fileNames []string) string {
+	configDir := filepath.Dir(filepath.Clean(filepath.FromSlash(configPath)))
+	outputDir := filepath.Clean(filepath.FromSlash(outDir))
+	if !filepath.IsAbs(outputDir) {
+		outputDir = filepath.Join(configDir, outputDir)
+	}
+	var sourceDirs []string
+	for _, fileName := range fileNames {
+		path := filepath.Clean(filepath.FromSlash(fileName))
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(configDir, path)
+		}
+		if isRootDirInferenceIgnored(path, outputDir) {
+			continue
+		}
+		sourceDirs = append(sourceDirs, filepath.Dir(path))
+	}
+	if len(sourceDirs) == 0 {
+		return ""
+	}
+	return filepath.ToSlash(commonSourceAncestor(sourceDirs))
+}
+
+func commonSourceAncestor(dirs []string) string {
+	common := filepath.Clean(dirs[0])
+	for _, dir := range dirs[1:] {
+		dir = filepath.Clean(dir)
+		if !samePathVolume(common, dir) {
+			return ""
+		}
+		for !isPathWithin(common, dir) {
+			parent := filepath.Dir(common)
+			if parent == common {
+				return ""
+			}
+			common = parent
+		}
+	}
+	return common
+}
+
+func samePathVolume(left, right string) bool {
+	return strings.EqualFold(filepath.VolumeName(left), filepath.VolumeName(right))
+}
+
+func isPathWithin(base, target string) bool {
+	rel, err := filepath.Rel(base, target)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
+}
+
+func isRootDirInferenceIgnored(filePath, outDir string) bool {
+	lower := strings.ToLower(filepath.ToSlash(filePath))
+	for _, part := range strings.Split(lower, "/") {
+		if part == "node_modules" {
+			return true
+		}
+	}
+
+	base := strings.ToLower(filepath.Base(filePath))
+	ext := filepath.Ext(base)
+	if ext != "" && strings.HasSuffix(strings.TrimSuffix(base, ext), ".d") {
+		return true
+	}
+
+	return outDir != "" && isPathDescendantOf(filePath, outDir)
 }
 
 func remapProgramSourceFiles(program *compiler.Program, sourceFiles []*ast.SourceFile) ([]*ast.SourceFile, error) {

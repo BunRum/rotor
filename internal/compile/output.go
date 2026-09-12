@@ -70,7 +70,7 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 	if err := maybeCopyInclude(dir, pathTranslator.OutDir, opts); err != nil {
 		return nil, nil, err
 	}
-	if err := copyNonCompiledFiles(pathTranslator, getRootDirs(program), opts.WriteOnlyChanged); err != nil {
+	if err := copyNonCompiledFiles(pathTranslator, copyRootDirs(program), opts.WriteOnlyChanged); err != nil {
 		return nil, nil, err
 	}
 
@@ -316,7 +316,7 @@ func maybeCopyInclude(dir, outDir string, opts ProjectOptions) error {
 		return nil
 	}
 
-	includePath, err := resolveBuildIncludePath(dir, outDir, opts.IncludePath)
+	includePath, err := resolveIncludePath(dir, opts.IncludePath)
 	if err != nil {
 		return err
 	}
@@ -339,10 +339,19 @@ func cleanupDirRecursively(pathTranslator *rojo.PathTranslator, dir string) {
 	for _, entry := range entries {
 		itemPath := filepath.Join(dir, entry.Name())
 		if entry.IsDir() {
+			// A prior interrupted build may have copied outDir beneath
+			// itself. Never descend into another directory with the output
+			// basename; doing so can recurse indefinitely through stale
+			// out/<place>/out/<place>/ trees.
+			if filepath.Base(itemPath) == filepath.Base(pathTranslator.OutDir) &&
+				filepath.Clean(dir) != filepath.Clean(pathTranslator.OutDir) {
+				continue
+			}
 			if entry.Name() == ".git" {
 				continue
 			}
 			cleanupDirRecursively(pathTranslator, itemPath)
+			continue
 		}
 		tryRemoveOutput(pathTranslator, itemPath)
 	}
@@ -383,6 +392,18 @@ func copyNonCompiledFiles(pathTranslator *rojo.PathTranslator, rootDirs []string
 		}
 	}
 	return nil
+}
+
+// copyRootDirs preserves rootDirs as the physical source partitions for
+// passthrough files. The effective rootDir controls TypeScript emission, but
+// using it here would walk sibling output trees and recursively copy generated
+// files.
+func copyRootDirs(program *compiler.Program) []string {
+	options := program.Options()
+	if len(options.RootDirs) > 0 {
+		return options.RootDirs
+	}
+	return getRootDirs(program)
 }
 
 func copyItem(pathTranslator *rojo.PathTranslator, itemPath string, writeOnlyChanged bool) error {

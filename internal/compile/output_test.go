@@ -88,7 +88,7 @@ func TestBuildProjectOutputPipeline(t *testing.T) {
 
 func TestBuildProjectExternalOutputIncludesRuntimeLibrary(t *testing.T) {
 	dir := writeProject(t, "external-output-fixture",
-		`{"name":"x","tree":{"$path":"../build","include":{"$path":"../build/include"}}}`)
+		`{"name":"x","tree":{"$path":"../build","include":{"$path":"include"}}}`)
 	tsconfigPath := filepath.Join(dir, "tsconfig.json")
 	tsconfigBytes, err := os.ReadFile(tsconfigPath)
 	if err != nil {
@@ -112,8 +112,81 @@ func TestBuildProjectExternalOutputIncludesRuntimeLibrary(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "..", "build", "main.luau")); err != nil {
 		t.Fatalf("external compiled output missing: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "..", "build", "include", "RuntimeLib.lua")); err != nil {
-		t.Fatalf("external include runtime missing: %v", err)
+	if _, err := os.Stat(filepath.Join(dir, "include", "RuntimeLib.lua")); err != nil {
+		t.Fatalf("project include runtime missing: %v", err)
+	}
+}
+
+func TestBuildProjectMultiplaceRojoPaths(t *testing.T) {
+	root := t.TempDir()
+	lobby := filepath.Join(root, "places", "lobby")
+	common := filepath.Join(root, "places", "common")
+	for _, dir := range []string{
+		filepath.Join(lobby, "src"),
+		filepath.Join(common, "src"),
+	} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(lobby, "package.json"), []byte(`{"name":"lobby"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(lobby, "src", "main.ts"), []byte("export {};\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(lobby, "src", "globals.d.ts"), []byte(noLibGlobalStubs), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(common, "src", "shared.ts"), []byte("export {};\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tsconfig := `{
+	"compilerOptions": {
+		"allowSyntheticDefaultImports": true,
+		"module": "CommonJS",
+		"moduleResolution": "Node",
+		"moduleDetection": "force",
+		"noLib": true,
+		"strict": true,
+		"target": "ESNext",
+		"types": [],
+		"typeRoots": ["node_modules/@rbxts"],
+		"outDir": "out",
+		"rootDirs": ["src", "../common/src"]
+	},
+	"include": ["src/**/*", "../common/**/*"]
+}`
+	configPath := filepath.Join(lobby, "tsconfig.build.json")
+	if err := os.WriteFile(configPath, []byte(tsconfig), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rojo := `{"name":"multiplace","tree":{"$path":"out","include":{"$path":"include"}}}`
+	if err := os.WriteFile(filepath.Join(lobby, "default.project.json"), []byte(rojo), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, diags, err := BuildProjectWithOptions(lobby, ProjectOptions{
+		TsConfigPath:     configPath,
+		EmitIncludeFiles: true,
+	})
+	if err != nil {
+		t.Fatalf("BuildProjectWithOptions: %v (diags: %v)", err, diags)
+	}
+	if len(diags) > 0 {
+		t.Fatalf("diagnostics: %v", diags)
+	}
+	for _, path := range []string{
+		filepath.Join(lobby, "out", "lobby", "src", "main.luau"),
+		filepath.Join(lobby, "out", "common", "src", "shared.luau"),
+		filepath.Join(lobby, "include", "RuntimeLib.lua"),
+	} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("expected multiplace output %s: %v", path, err)
+		}
+	}
+	if result == nil || result.OutputDir != filepath.Join(lobby, "out") {
+		t.Fatalf("result output dir = %#v, want %s", result, filepath.Join(lobby, "out"))
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"sort"
+	"strings"
 
 	"rotor/internal/luau"
 	"rotor/tsgo/ast"
@@ -132,7 +133,11 @@ func resolveFileExpression(s *State, node *ast.Node, path string) luau.Expressio
 		return value
 	}
 	// Non-JSON text file: the raw contents become a single Luau string literal.
-	return luau.Str(string(data))
+	// Normalize platform line endings so generated Luau is deterministic across
+	// Windows and Unix checkouts.
+	text := strings.ReplaceAll(string(data), "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\r", "\n")
+	return luau.Str(text)
 }
 
 // jsonBytesToLuau parses JSON bytes (numbers kept lossless via json.Number) and

@@ -27,7 +27,7 @@ const banner = "rotor — an all-in-one Roblox toolchain (rbxtsc-parity compiler
 // byte-comparison stays strict. The value is defined in code
 // (internal/version) — no ldflags injection; kept as a var so tests can
 // override it.
-var version = rotorversion.Version
+var version = rotorversion.BuildVersion
 
 func main() {
 	os.Exit(run(os.Args[1:]))
@@ -143,7 +143,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  --writeTransformedFiles   not supported by rotor (parsed and ignored)")
 	fmt.Fprintln(w, "  --optimizedLoops          numeric-for loop optimization (default true)")
 	fmt.Fprintln(w, "  --type <kind>             override project type (choices: game, model, package)")
-	fmt.Fprintln(w, "  -i, --includePath <dir>   folder to copy runtime files to (default <project>/include, or <outDir>/include for external outDir)")
+	fmt.Fprintln(w, "  -i, --includePath <dir>   folder to copy runtime files to (default <project>/include)")
 	fmt.Fprintln(w, "  --rojo <path>             manually select Rojo project file")
 	fmt.Fprintln(w, "  --allowCommentDirectives  allow @ts-ignore et al.")
 	fmt.Fprintln(w, "  --luau                    emit files with .luau extension (default true; --luau=false emits .lua)")

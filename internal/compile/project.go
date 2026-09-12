@@ -154,22 +154,6 @@ func resolveIncludePath(dir, includePath string) (string, error) {
 	return filepath.Abs(filepath.FromSlash(includePath))
 }
 
-// resolveBuildIncludePath keeps the upstream project/include default for
-// normal builds, but places the generated runtime library beside an external
-// outDir. This lets a project whose Rojo tree maps ../../build/... contain all
-// generated files without requiring --includePath on every build.
-func resolveBuildIncludePath(dir, outDir, includePath string) (string, error) {
-	if includePath != "" {
-		return resolveIncludePath(dir, includePath)
-	}
-	outDir = filepath.Clean(filepath.FromSlash(outDir))
-	projectDir := filepath.Clean(filepath.FromSlash(dir))
-	if !isPathDescendantOf(outDir, projectDir) {
-		return filepath.Join(outDir, "include"), nil
-	}
-	return filepath.Join(projectDir, "include"), nil
-}
-
 // newProjectContext ports the project-level setup of compileFiles.ts L56-100
 // (with createProjectData.ts feeding it): RojoResolver construction,
 // checkRojoConfig/checkFileName, ProjectType selection, and runtimeLibRbxPath
@@ -193,7 +177,7 @@ func newProjectContext(dir string, program *compiler.Program, opts ProjectOption
 		return nil, nil, err
 	}
 
-	includePath, err := resolveBuildIncludePath(dir, outDir, opts.IncludePath)
+	includePath, err := resolveIncludePath(dir, opts.IncludePath)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -236,7 +220,7 @@ func newProjectContext(dir string, program *compiler.Program, opts ProjectOption
 	// (compileFiles.ts L69-75); upstream flushes them only after the emit
 	// failures below get their early returns, so the queue is checked last.
 	var checkDiags []string
-	checkDiags = append(checkDiags, checkRojoConfig(rojoConfigPath, rojoResolver, getRootDirs(program), pathTranslator)...)
+	checkDiags = append(checkDiags, checkRojoConfig(rojoConfigPath, rojoResolver, rojoSourceRoots(program), pathTranslator)...)
 	nodeModulesPath := filepath.Join(filepath.Dir(pkgJSONPath), "node_modules")
 	for _, sourceFile := range program.SourceFiles() {
 		fileName := filepath.FromSlash(sourceFile.FileName())
@@ -966,6 +950,13 @@ func getRootDirs(program *compiler.Program) []string {
 		return options.RootDirs
 	}
 	panic("compile: getRootDirs: neither rootDir nor rootDirs is set") // upstream assert
+}
+
+func rojoSourceRoots(program *compiler.Program) []string {
+	if len(program.Options().RootDirs) > 0 {
+		return program.Options().RootDirs
+	}
+	return getRootDirs(program)
 }
 
 // findAncestorDir ports Shared/util/findAncestorDir.ts: the deepest directory

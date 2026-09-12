@@ -114,7 +114,7 @@ A standalone `.ts` file isn't compilable by itself — like `rbxtsc`, rotor need
 
 ## Build options
 
-`rotor build` accepts the full rbxtsc flag surface (booleans accept `--flag`, `--flag=false`, `--no-flag`): `-p/--project`, `-w/--watch`, `--usePolling`, `--verbose`, `--noInclude`, `--logTruthyChanges`, `--writeOnlyChanged`, `--optimizedLoops`, `--type game|model|package`, `-i/--includePath`, `--rojo`, `--allowCommentDirectives`, `--luau`, plus rotor's own `--cpuprofile`. For a build whose `outDir` is outside the project directory, Rotor writes the runtime `include` folder beside that output automatically; use `--includePath` to override it. Run `rotor --help` for details.
+`rotor build` accepts the full rbxtsc flag surface (booleans accept `--flag`, `--flag=false`, `--no-flag`): `-p/--project`, `-w/--watch`, `--usePolling`, `--verbose`, `--noInclude`, `--logTruthyChanges`, `--writeOnlyChanged`, `--optimizedLoops`, `--type game|model|package`, `-i/--includePath`, `--rojo`, `--allowCommentDirectives`, `--luau`, plus rotor's own `--cpuprofile`. The runtime `include` folder defaults to the directory containing the tsconfig; use `--includePath` to override it. Run `rotor --help` for details.
 
 Options may also be set under the top-level `"rbxts"` key of `tsconfig.json`; merge order: defaults < rbxts < command line.
 

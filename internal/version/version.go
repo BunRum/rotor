@@ -9,3 +9,6 @@ package version
 // refuses to publish a tag that doesn't match it (tag `vX.Y.Z` must equal
 // "v" + Version).
 const Version = "2.3.0"
+
+// BuildVersion is the version shown by this fork's locally built binary.
+const BuildVersion = Version + "-fork"

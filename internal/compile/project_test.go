@@ -566,6 +566,106 @@ func TestNewProjectProgramUsesMultipleCheckerGroups(t *testing.T) {
 	}
 }
 
+func TestNewProjectProgramInfersRootDirForRootDirsLayout(t *testing.T) {
+	root := t.TempDir()
+	places := filepath.Join(root, "Places")
+	lobby := filepath.Join(places, "Lobby")
+	common := filepath.Join(places, "common")
+	types := filepath.Join(root, "types")
+	for _, dir := range []string{
+		filepath.Join(lobby, "src"),
+		filepath.Join(common, "src"),
+		types,
+		filepath.Join(lobby, "out"),
+	} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for path, text := range map[string]string{
+		filepath.Join(lobby, "src", "main.ts"):       "export {};\n",
+		filepath.Join(common, "src", "shared.ts"):    "export {};\n",
+		filepath.Join(types, "global.d.ts"):          "declare const GLOBAL: string;\n",
+		filepath.Join(lobby, "out", "generated.ts"):  "export {};\n",
+		filepath.Join(lobby, "node_modules", "x.ts"): "export {};\n",
+	} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tsconfig := `{
+	"compilerOptions": {
+		"allowSyntheticDefaultImports": true,
+		"module": "CommonJS",
+		"moduleResolution": "Node",
+		"noLib": true,
+		"moduleDetection": "force",
+		"strict": true,
+		"target": "ESNext",
+		"types": [],
+		"typeRoots": ["node_modules/@rbxts"],
+		"outDir": "out",
+		"rootDirs": ["src", "../common/src"]
+	},
+	"include": [
+		"src/**/*",
+		"../common/**/*",
+		"../../types/**/*",
+		"out/**/*",
+		"node_modules/**/*"
+	]
+}`
+	configPath := filepath.Join(lobby, "tsconfig.build.json")
+	if err := os.WriteFile(configPath, []byte(tsconfig), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, program, diags, err := newProjectProgram(lobby, configPath)
+	if err != nil {
+		t.Fatalf("newProjectProgram: %v (diags: %v)", err, diags)
+	}
+	wantRoot := filepath.ToSlash(places)
+	if got := program.Options().RootDir; got != wantRoot {
+		t.Fatalf("inferred rootDir = %q, want %q", got, wantRoot)
+	}
+
+	translator := createPathTranslator(program, true)
+	wantLobby := filepath.Join(filepath.ToSlash(lobby), "out", "Lobby", "src", "main.luau")
+	wantCommon := filepath.Join(filepath.ToSlash(lobby), "out", "common", "src", "shared.luau")
+	if got := translator.GetOutputPath(filepath.Join(filepath.ToSlash(lobby), "src", "main.ts")); got != wantLobby {
+		t.Errorf("Lobby output = %q, want %q", got, wantLobby)
+	}
+	if got := translator.GetOutputPath(filepath.Join(filepath.ToSlash(common), "src", "shared.ts")); got != wantCommon {
+		t.Errorf("common output = %q, want %q", got, wantCommon)
+	}
+}
+
+func TestNewProjectProgramPreservesExplicitRootDir(t *testing.T) {
+	dir := writeProject(t, "@scope/explicit-root-fixture", "")
+	tsconfigPath := filepath.Join(dir, "tsconfig.json")
+	tsconfigBytes, err := os.ReadFile(tsconfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tsconfig := strings.Replace(string(tsconfigBytes), `"rootDir": "src"`, `"rootDir": "src",
+		"rootDirs": ["src", "../common/src"]`, 1)
+	if err := os.WriteFile(tsconfigPath, []byte(tsconfig), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, program, diags, err := newProjectProgram(dir, tsconfigPath)
+	if err != nil {
+		t.Fatalf("newProjectProgram: %v (diags: %v)", err, diags)
+	}
+	want := filepath.ToSlash(filepath.Join(dir, "src"))
+	if got := program.Options().RootDir; got != want {
+		t.Fatalf("explicit rootDir = %q, want %q", got, want)
+	}
+}
+
 func keys(m map[string]string) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {
