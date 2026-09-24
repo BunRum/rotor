@@ -10,7 +10,7 @@ runs:
   using: composite
   steps:
     - name: Set up Go
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@v6
       with:
         go-version-file: go.mod
 
@@ -20,7 +20,7 @@ runs:
     - name: Set up Node.js
       # The transformer sidecar (tools/sidecar/main.js) runs under Node; plugin
       # tests require `node` on PATH.
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@v5
       with:
         node-version: "22"
 
